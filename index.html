@@ -225,12 +225,12 @@
         const pad = Math.max(1, dim * 0.06);
         logoGroup =
           `<rect x="${center - half - pad}" y="${center - half - pad}" width="${dim + pad * 2}" height="${dim + pad * 2}" rx="${pad}" fill="${params.bg}"/>` +
-          `<image x="${center - half}" y="${center - half}" width="${dim}" height="${dim}" preserveAspectRatio="xMidYMid meet" href="${logoDataUri}"/>`;
+          `<image x="${center - half}" y="${center - half}" width="${dim}" height="${dim}" preserveAspectRatio="xMidYMid meet" href="${logoDataUri}" xlink:href="${logoDataUri}"/>`;
       }
     }
 
     return (
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${params.size}" height="${params.size}">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${total} ${total}" width="${params.size}" height="${params.size}">` +
       `<rect width="${total}" height="${total}" fill="${params.bg}"/>` +
       `<path d="${paths}" fill="${params.fg}"/>` +
       logoGroup +
@@ -238,7 +238,35 @@
     );
   }
 
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  async function fetchViaProxy(url) {
+    const proxies = [
+      (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+      (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+      (u) => `https://images.weserv.nl/?url=${encodeURIComponent(u.replace(/^https?:\/\//, ''))}`,
+    ];
+    for (const mk of proxies) {
+      try {
+        const res = await fetch(mk(url));
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        if (!blob.type.startsWith('image/')) continue;
+        return { kind: 'data', value: await blobToDataUrl(blob) };
+      } catch (e) {}
+    }
+    return null;
+  }
+
   async function loadLogo(url) {
+    if (/^data:image\//i.test(url)) return { kind: 'data', value: url };
     try {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -250,6 +278,8 @@
       canvas.getContext('2d').drawImage(img, 0, 0);
       return { kind: 'data', value: canvas.toDataURL('image/png') };
     } catch (e) {
+      const viaProxy = await fetchViaProxy(url);
+      if (viaProxy) return viaProxy;
       try {
         const img = new Image();
         img.src = url;
