@@ -126,6 +126,12 @@
       <label>Logo size: <span id="logoSizeVal">22%</span></label>
       <input type="range" id="logoSize" min="0" max="30" step="1" value="22" />
 
+      <label for="fmt">Download format</label>
+      <select id="fmt" style="width:100%;padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:#0b0d12;color:var(--text);">
+        <option value="svg" selected>SVG (vector, default)</option>
+        <option value="png">PNG (raster)</option>
+      </select>
+
       <button id="downloadBtn" class="secondary">Download SVG</button>
     </div>
 
@@ -138,9 +144,9 @@
   <p class="hint">
     Query parameters: <code>data</code> (text to encode), <code>logo</code> (logo image URL),
     <code>size</code>, <code>fg</code>, <code>bg</code>, <code>ec</code> (L/M/Q/H), <code>logoSize</code> (0-30%),
-    <code>download=1</code> (auto-download).
-    <br />Example: <code>qrcode.html?data=https://example.com&amp;logo=https://example.com/logo.png&amp;fg=%23000000</code>
-    <br />If the logo server allows CORS, it's embedded in the SVG; otherwise it's referenced by URL (still renders/downloads, but stays a live link).
+    <code>download=1</code> (auto-download), <code>fmt</code> (svg | png, default svg).
+    <br />Example: <code>qrcode.html?data=https://example.com&amp;logo=https://example.com/logo.png&amp;fg=%23000000&amp;fmt=png</code>
+    <br />Works with no params (defaults to SVG). If the logo server allows CORS, it's embedded in the SVG; otherwise it's referenced by URL (still renders/downloads, but stays a live link).
   </p>
 
 <script>
@@ -158,6 +164,7 @@
       bg: p.get('bg') || '#ffffff',
       ec: ['L', 'M', 'Q', 'H'].includes(p.get('ec')) ? p.get('ec') : 'H',
       logoSize: clampInt(p.get('logoSize'), 0, 30, 22),
+      fmt: p.get('fmt') === 'png' ? 'png' : 'svg',
       download: p.get('download') === '1',
     };
   }
@@ -177,6 +184,8 @@
     $('ec').value = params.ec;
     $('logoSize').value = params.logoSize;
     $('logoSizeVal').textContent = params.logoSize + '%';
+    $('fmt').value = params.fmt;
+    updateDownloadLabels();
   }
 
   function readControls() {
@@ -188,6 +197,7 @@
       bg: $('bg').value,
       ec: $('ec').value,
       logoSize: clampInt($('logoSize').value, 0, 30, 22),
+      fmt: $('fmt').value === 'png' ? 'png' : 'svg',
     };
   }
 
@@ -264,15 +274,56 @@
     return svg;
   }
 
-  function downloadSvg() {
+  function updateDownloadLabels() {
+    const label = $('fmt').value === 'png' ? 'Download PNG' : 'Download SVG';
+    $('downloadBtn').textContent = label;
+    $('downloadBtn2').textContent = label;
+  }
+
+  function triggerDownload(href, filename) {
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function downloadSvg() {
     const svg = stage.dataset.svg;
     if (!svg) return;
+    if ($('fmt').value === 'png') {
+      await downloadPng(svg);
+      return;
+    }
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'qrcode.svg';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, 'qrcode.svg');
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function downloadPng(svg) {
+    const size = parseInt($('size').value, 10) || 512;
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = url;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      canvas.getContext('2d').drawImage(img, 0, 0, size, size);
+      const dataUrl = canvas.toDataURL('image/png');
+      triggerDownload(dataUrl, 'qrcode.png');
+    } catch (e) {
+      alert('PNG export failed (likely a cross-origin logo). Download SVG instead.');
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
   }
 
   function buildShareUrl(params) {
@@ -286,6 +337,7 @@
     p.set('bg', params.bg);
     p.set('ec', params.ec);
     p.set('logoSize', params.logoSize);
+    if (params.fmt === 'png') p.set('fmt', 'png'); else p.delete('fmt');
     return u.toString();
   }
 
@@ -311,6 +363,11 @@
 
   $('downloadBtn').addEventListener('click', downloadSvg);
   $('downloadBtn2').addEventListener('click', downloadSvg);
+
+  $('fmt').addEventListener('change', () => {
+    updateDownloadLabels();
+    history.replaceState(null, '', buildShareUrl(readControls()));
+  });
 
   $('logoSize').addEventListener('input', () => {
     $('logoSizeVal').textContent = $('logoSize').value + '%';
