@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QR Code Generator (SVG + Logo)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #1a1d24;
+    --border: #2a2f3a;
+    --text: #e8eaf0;
+    --muted: #8b93a3;
+    --accent: #4f7cff;
+    --accent-hover: #3b63d8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 24px; font-size: .85rem; text-align: center; }
+
+  .layout { display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; align-items: flex-start; width: 100%; max-width: 960px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    width: 340px;
+  }
+  .panel label { display: block; font-size: .8rem; color: var(--muted); margin: 14px 0 6px; }
+  .panel input[type="text"], .panel input[type="url"], .panel input[type="number"] {
+    width: 100%;
+    padding: 9px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #0b0d12;
+    color: var(--text);
+    font-size: .9rem;
+  }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  input[type="color"] {
+    width: 100%; height: 36px; border: 1px solid var(--border);
+    border-radius: 8px; background: #0b0d12; padding: 2px; cursor: pointer;
+  }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+  button {
+    margin-top: 18px;
+    width: 100%;
+    padding: 11px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: .95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-hover); }
+  button.secondary { background: #2a2f3a; color: var(--text); margin-top: 8px; }
+  button.secondary:hover { background: #343a46; }
+
+  .preview-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .stage { display: flex; align-items: center; justify-content: center; }
+  .stage svg { display: block; }
+  .hint { color: var(--muted); font-size: .75rem; text-align: center; max-width: 420px; line-height: 1.5; }
+  code { background: #0b0d12; padding: 1px 6px; border-radius: 4px; font-size: .8rem; }
+</style>
+</head>
+<body>
+  <h1>QR Code Generator</h1>
+  <p class="sub">SVG output with optional center logo — fully driven by URL query parameters</p>
+
+  <div class="layout">
+    <div class="panel">
+      <label for="data">Content to encode</label>
+      <input type="text" id="data" />
+
+      <label for="logo">Logo image URL (optional)</label>
+      <input type="url" id="logo" placeholder="https://example.com/logo.png" />
+
+      <label for="size">Output size (px)</label>
+      <input type="number" id="size" min="64" max="4096" step="16" />
+
+      <div class="row">
+        <div>
+          <label>Foreground</label>
+          <input type="color" id="fg" />
+        </div>
+        <div>
+          <label>Background</label>
+          <input type="color" id="bg" />
+        </div>
+      </div>
+
+      <label for="ec">Error correction</label>
+      <select id="ec" style="width:100%;padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:#0b0d12;color:var(--text);">
+        <option value="L">L — 7%</option>
+        <option value="M">M — 15%</option>
+        <option value="Q">Q — 25%</option>
+        <option value="H" selected>H — 30% (best with logo)</option>
+      </select>
+
+      <label>Logo size: <span id="logoSizeVal">22%</span></label>
+      <input type="range" id="logoSize" min="0" max="40" step="1" value="22" />
+
+      <button id="updateBtn">Update &amp; Copy URL</button>
+      <button id="downloadBtn" class="secondary">Download SVG</button>
+    </div>
+
+    <div class="preview-wrap">
+      <div class="stage" id="stage"></div>
+      <button id="downloadBtn2">Download SVG</button>
+    </div>
+  </div>
+
+  <p class="hint">
+    Query parameters: <code>data</code> (text to encode), <code>logo</code> (logo image URL),
+    <code>size</code>, <code>fg</code>, <code>bg</code>, <code>ec</code> (L/M/Q/H), <code>logoSize</code> (0-40%).
+    <br />Example: <code>qrcode.html?data=https://example.com&amp;logo=https://example.com/logo.png&amp;fg=%23000000</code>
+  </p>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage');
+
+  function getParams() {
+    const p = new URLSearchParams(location.search);
+    return {
+      data: p.get('data') || p.get('text') || p.get('url') || 'https://example.com',
+      logo: p.get('logo') || '',
+      size: clampInt(p.get('size'), 64, 4096, 512),
+      fg: p.get('fg') || '#000000',
+      bg: p.get('bg') || '#ffffff',
+      ec: ['L', 'M', 'Q', 'H'].includes(p.get('ec')) ? p.get('ec') : 'H',
+      logoSize: clampInt(p.get('logoSize'), 0, 40, 22),
+      download: p.get('download') === '1',
+    };
+  }
+
+  function clampInt(v, min, max, dflt) {
+    const n = parseInt(v, 10);
+    if (isNaN(n)) return dflt;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function setControls(params) {
+    $('data').value = params.data;
+    $('logo').value = params.logo;
+    $('size').value = params.size;
+    $('fg').value = params.fg;
+    $('bg').value = params.bg;
+    $('ec').value = params.ec;
+    $('logoSize').value = params.logoSize;
+    $('logoSizeVal').textContent = params.logoSize + '%';
+  }
+
+  function readControls() {
+    return {
+      data: $('data').value || 'https://example.com',
+      logo: $('logo').value.trim(),
+      size: clampInt($('size').value, 64, 4096, 512),
+      fg: $('fg').value,
+      bg: $('bg').value,
+      ec: $('ec').value,
+      logoSize: clampInt($('logoSize').value, 0, 40, 22),
+    };
+  }
+
+  function buildSvgString(params, logoDataUri) {
+    const qr = qrcode(0, params.ec);
+    qr.addData(params.data);
+    qr.make();
+
+    const count = qr.getModuleCount();
+    const margin = 4;
+    const total = count + margin * 2;
+    let paths = '';
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) paths += `M${c + margin},${r + margin}h1v1h-1z`;
+      }
+    }
+
+    let logoGroup = '';
+    if (logoDataUri) {
+      const dim = Math.max(0, (params.logoSize / 100) * count);
+      if (dim > 0) {
+        const center = total / 2;
+        const half = dim / 2;
+        const pad = Math.max(1, dim * 0.06);
+        logoGroup =
+          `<rect x="${center - half - pad}" y="${center - half - pad}" width="${dim + pad * 2}" height="${dim + pad * 2}" rx="${pad}" fill="${params.bg}"/>` +
+          `<image x="${center - half}" y="${center - half}" width="${dim}" height="${dim}" preserveAspectRatio="xMidYMid meet" href="${logoDataUri}"/>`;
+      }
+    }
+
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${params.size}" height="${params.size}">` +
+      `<rect width="${total}" height="${total}" fill="${params.bg}"/>` +
+      `<path d="${paths}" fill="${params.fg}"/>` +
+      logoGroup +
+      `</svg>`
+    );
+  }
+
+  async function imageToDataUri(url) {
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function render() {
+    const params = readControls();
+    let logoDataUri = null;
+    if (params.logo) logoDataUri = await imageToDataUri(params.logo);
+    if (params.logo && !logoDataUri) {
+      alert('Could not load/embed the logo (CORS or invalid URL). Rendering without logo.');
+    }
+    const svg = buildSvgString(params, logoDataUri);
+    stage.innerHTML = svg;
+    stage.dataset.svg = svg;
+    return svg;
+  }
+
+  function downloadSvg() {
+    const svg = stage.dataset.svg;
+    if (!svg) return;
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'qrcode.svg';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function buildShareUrl(params) {
+    const u = new URL(location.href);
+    u.search = '';
+    const p = u.searchParams;
+    p.set('data', params.data);
+    if (params.logo) p.set('logo', params.logo);
+    p.set('size', params.size);
+    p.set('fg', params.fg);
+    p.set('bg', params.bg);
+    p.set('ec', params.ec);
+    p.set('logoSize', params.logoSize);
+    return u.toString();
+  }
+
+  $('updateBtn').addEventListener('click', () => {
+    const params = readControls();
+    const url = buildShareUrl(params);
+    history.replaceState(null, '', url);
+    navigator.clipboard && navigator.clipboard.writeText(url);
+    render();
+  });
+
+  $('downloadBtn').addEventListener('click', downloadSvg);
+  $('downloadBtn2').addEventListener('click', downloadSvg);
+
+  $('logoSize').addEventListener('input', () => {
+    $('logoSizeVal').textContent = $('logoSize').value + '%';
+  });
+
+  setControls(getParams());
+  render().then(() => {
+    if (getParams().download) downloadSvg();
+  });
+})();
+</script>
+</body>
+</html>
