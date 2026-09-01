@@ -140,7 +140,7 @@
     <code>size</code>, <code>fg</code>, <code>bg</code>, <code>ec</code> (L/M/Q/H), <code>logoSize</code> (0-30%),
     <code>download=1</code> (auto-download).
     <br />Example: <code>qrcode.html?data=https://example.com&amp;logo=https://example.com/logo.png&amp;fg=%23000000</code>
-    <br />If the logo server allows CORS, it's embedded in the SVG; otherwise it's referenced by URL (still renders/downloads, but stays a live link).
+    <br />The logo is embedded as base64 inside the SVG (required for Illustrator). Google Drive links (share / open / uc) are auto-converted to a direct <code>lh3.googleusercontent.com</code> URL so the embed succeeds.
   </p>
 
 <script>
@@ -215,12 +215,12 @@
         const pad = Math.max(1, dim * 0.06);
         logoGroup =
           `<rect x="${center - half - pad}" y="${center - half - pad}" width="${dim + pad * 2}" height="${dim + pad * 2}" rx="${pad}" fill="${params.bg}"/>` +
-          `<image x="${center - half}" y="${center - half}" width="${dim}" height="${dim}" preserveAspectRatio="xMidYMid meet" href="${logoDataUri}"/>`;
+          `<image x="${center - half}" y="${center - half}" width="${dim}" height="${dim}" preserveAspectRatio="xMidYMid meet" href="${logoDataUri}" xlink:href="${logoDataUri}"/>`;
       }
     }
 
     return (
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${params.size}" height="${params.size}">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${total} ${total}" width="${params.size}" height="${params.size}">` +
       `<rect width="${total}" height="${total}" fill="${params.bg}"/>` +
       `<path d="${paths}" fill="${params.fg}"/>` +
       logoGroup +
@@ -228,11 +228,28 @@
     );
   }
 
+  function toDriveDirectUrl(url) {
+    try {
+      const u = new URL(url);
+      if (u.hostname !== 'drive.google.com' && u.hostname !== 'docs.google.com') return url;
+      let id = null;
+      const q = url.match(/[?&]id=([^&]+)/);
+      if (q) id = q[1];
+      else {
+        const f = url.match(/\/file\/d\/([^\/]+)/);
+        if (f) id = f[1];
+      }
+      if (id) return 'https://lh3.googleusercontent.com/d/' + id;
+    } catch (e) {}
+    return url;
+  }
+
   async function loadLogo(url) {
+    const direct = toDriveDirectUrl(url);
     try {
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      img.src = url;
+      img.src = direct;
       await img.decode();
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
@@ -242,9 +259,9 @@
     } catch (e) {
       try {
         const img = new Image();
-        img.src = url;
+        img.src = direct;
         await img.decode();
-        return { kind: 'url', value: url };
+        return { kind: 'url', value: direct };
       } catch (e2) {
         return null;
       }
